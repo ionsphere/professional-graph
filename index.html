@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Professional Graph Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Professional Graph</p>
+        <h1>Your world of work</h1>
+      </div>
+      <div class="legend" aria-label="Graph legend">
+        <span><i class="legend-dot muted"></i> unexplored</span>
+        <span><i class="legend-dot active"></i> stronger match</span>
+        <span><i class="legend-ring"></i> changed now</span>
+      </div>
+    </header>
+
+    <section class="graph-card" aria-label="Interactive profession graph">
+      <canvas id="graphCanvas"></canvas>
+      <div class="graph-controls">
+        <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+        <button id="fitView" type="button">Fit</button>
+        <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+      </div>
+      <div id="nodeTooltip" class="tooltip" hidden></div>
+    </section>
+
+    <section class="assessment-card">
+      <div class="progress-row">
+        <strong id="progressLabel">0 of 12 answered</strong>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+
+      <div class="question-copy">
+        <p class="question-index" id="questionIndex">Question 1</p>
+        <h2 id="questionText"></h2>
+      </div>
+
+      <div id="answerButtons" class="answers" role="group" aria-label="Answer choices"></div>
+      <p class="interaction-note">Each answer recolors the graph immediately. Newly affected professions pulse briefly.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
