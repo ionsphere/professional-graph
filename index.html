@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Professional Graph Prototype</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -14,9 +14,9 @@
         <h1>Your world of work</h1>
       </div>
       <div class="legend" aria-label="Graph legend">
-        <span><i class="legend-dot muted"></i> unexplored</span>
+        <span><i class="legend-dot muted"></i> weaker match</span>
         <span><i class="legend-dot active"></i> stronger match</span>
-        <span><i class="legend-ring"></i> changed now</span>
+        <span><i class="legend-ring"></i> affected by this answer</span>
       </div>
     </header>
 
@@ -35,8 +35,9 @@
         <strong id="progressLabel">0 of 12 answered</strong>
         <span id="progressPercent">0%</span>
       </div>
-      <div class="progress-track" aria-hidden="true">
-        <div id="progressFill" class="progress-fill"></div>
+      <div class="question-slider-wrap">
+        <input id="questionSlider" class="question-slider" type="range" min="1" max="12" value="1" step="1" aria-label="Question navigation" />
+        <div class="slider-scale" aria-hidden="true"><span>1</span><span>12</span></div>
       </div>
 
       <div class="question-copy">
@@ -45,7 +46,7 @@
       </div>
 
       <div id="answerButtons" class="answers" role="group" aria-label="Answer choices"></div>
-      <p class="interaction-note">Each answer recolors the graph immediately. Newly affected professions pulse briefly.</p>
+      <p class="interaction-note">Move backward through answered questions to replay their effect. Unanswered questions never preview affected professions.</p>
     </section>
   </main>
 
