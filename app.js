@@ -1,6 +1,8 @@
 const canvas = document.getElementById('graphCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
 const tooltip = document.getElementById('nodeTooltip');
+const slider = document.getElementById('questionSlider');
+const HIGHLIGHT_MS = 2200;
 
 const clusters = [
   { id: 'technology', label: 'Technology', hue: 210, jobs: ['Software Engineer','Data Scientist','ML Engineer','Cybersecurity Analyst','Product Manager','UX Designer','Cloud Engineer','Game Developer','Robotics Engineer','QA Engineer'] },
@@ -23,16 +25,11 @@ const seeded = (text) => {
 };
 
 const clusterTraits = {
-  technology: { analysis:.9, building:.8, creativity:.5, order:.5 },
-  health: { care:1, people:.8, analysis:.6, risk:.4 },
-  science: { analysis:1, outdoors:.35, order:.55 },
-  creative: { creativity:1, people:.35, building:.3 },
-  education: { people:.9, care:.7, creativity:.5, leadership:.45 },
-  business: { leadership:.9, people:.75, order:.65, analysis:.45 },
-  public: { people:.7, care:.55, leadership:.65, risk:.55, order:.6 },
-  trades: { building:1, movement:.75, outdoors:.45, order:.5 },
-  transport: { movement:1, risk:.55, order:.65, outdoors:.4 },
-  service: { people:.85, care:.55, movement:.55, creativity:.35 }
+  technology: { analysis:.9, building:.8, creativity:.5, order:.5 }, health: { care:1, people:.8, analysis:.6, risk:.4 },
+  science: { analysis:1, outdoors:.35, order:.55 }, creative: { creativity:1, people:.35, building:.3 },
+  education: { people:.9, care:.7, creativity:.5, leadership:.45 }, business: { leadership:.9, people:.75, order:.65, analysis:.45 },
+  public: { people:.7, care:.55, leadership:.65, risk:.55, order:.6 }, trades: { building:1, movement:.75, outdoors:.45, order:.5 },
+  transport: { movement:1, risk:.55, order:.65, outdoors:.4 }, service: { people:.85, care:.55, movement:.55, creativity:.35 }
 };
 
 const nodes = [];
@@ -41,7 +38,7 @@ clusters.forEach((cluster, ci) => {
   const angle = -Math.PI / 2 + (ci / clusters.length) * Math.PI * 2;
   const cx = Math.cos(angle) * 560;
   const cy = Math.sin(angle) * 390;
-  const root = { id: cluster.id, label: cluster.label, cluster, level: 0, x: cx, y: cy, radius: 34, score: 0, changedAt: 0, traits: clusterTraits[cluster.id] };
+  const root = { id: cluster.id, label: cluster.label, cluster, level: 0, x: cx, y: cy, radius: 34, score: 0, visualRank: 0, changedAt: -Infinity, traits: clusterTraits[cluster.id] };
   nodes.push(root);
   cluster.jobs.forEach((job, ji) => {
     const localAngle = angle + (ji - 4.5) * 0.105;
@@ -49,18 +46,7 @@ clusters.forEach((cluster, ci) => {
     const random = seeded(job);
     const traits = {};
     traitKeys.forEach(key => traits[key] = Math.min(1, (clusterTraits[cluster.id][key] || 0) + random() * .24));
-    const node = {
-      id: `${cluster.id}-${ji}`,
-      label: job,
-      cluster,
-      level: 1,
-      x: cx + Math.cos(localAngle) * distance,
-      y: cy + Math.sin(localAngle) * distance,
-      radius: 14,
-      score: 0,
-      changedAt: 0,
-      traits
-    };
+    const node = { id: `${cluster.id}-${ji}`, label: job, cluster, level: 1, x: cx + Math.cos(localAngle) * distance, y: cy + Math.sin(localAngle) * distance, radius: 14, score: 0, visualRank: 0, changedAt: -Infinity, traits };
     nodes.push(node);
     edges.push([root, node]);
   });
@@ -80,13 +66,8 @@ const questions = [
   { text: 'I would enjoy coordinating many people, deadlines, and resources toward one outcome.', weights: { leadership:.85, order:.85, people:.45 } },
   { text: 'Working outside or around machines, vehicles, buildings, or natural environments appeals to me.', weights: { outdoors:1, movement:.65, building:.55 } }
 ];
-
 const choices = [
-  { label: 'Strongly dislike', value: -1 },
-  { label: 'Dislike', value: -.5 },
-  { label: 'Unsure', value: 0 },
-  { label: 'Like', value: .5 },
-  { label: 'Strongly like', value: 1 }
+  { label: 'Strongly dislike', value: -1 }, { label: 'Dislike', value: -.5 }, { label: 'Unsure', value: 0 }, { label: 'Like', value: .5 }, { label: 'Strongly like', value: 1 }
 ];
 
 let answers = Array(questions.length).fill(null);
@@ -96,6 +77,7 @@ let dragging = false;
 let lastPointer = null;
 let hoveredNode = null;
 let needsFrame = true;
+let advanceTimer = null;
 
 function resize() {
   const rect = canvas.getBoundingClientRect();
@@ -105,7 +87,6 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   fitView();
 }
-
 function fitView() {
   const rect = canvas.getBoundingClientRect();
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
@@ -116,64 +97,88 @@ function fitView() {
   view.y = rect.height / 2 - ((minY + maxY) / 2) * view.scale;
   requestDraw();
 }
-
 function worldToScreen(node) { return { x: node.x * view.scale + view.x, y: node.y * view.scale + view.y }; }
 function screenToWorld(x, y) { return { x: (x - view.x) / view.scale, y: (y - view.y) / view.scale }; }
 function requestDraw() { needsFrame = true; }
 
-function scoreGraph() {
+function questionImpact(node, question, answerValue) {
+  let impact = 0;
+  Object.entries(question.weights).forEach(([trait, weight]) => { impact += answerValue * weight * (node.traits[trait] || 0); });
+  return impact;
+}
+
+function applyVisualRanks() {
+  const sorted = [...nodes].sort((a, b) => a.score - b.score);
+  const divisor = Math.max(1, sorted.length - 1);
+  sorted.forEach((node, index) => { node.visualRank = index / divisor; });
+}
+
+function scoreGraph({ highlightQuestion = null } = {}) {
   const answered = answers.map((value, i) => value === null ? null : { value, question: questions[i] }).filter(Boolean);
-  const now = performance.now();
   nodes.forEach(node => {
-    const previous = node.score;
     if (!answered.length) node.score = 0;
     else {
-      let weighted = 0, magnitude = 0;
+      let weighted = 0;
+      let magnitude = 0;
       answered.forEach(({ value, question }) => {
         Object.entries(question.weights).forEach(([trait, weight]) => {
           weighted += value * weight * (node.traits[trait] || 0);
-          magnitude += Math.abs(weight);
+          magnitude += Math.abs(weight) * Math.max(.2, node.traits[trait] || 0);
         });
       });
-      node.score = magnitude ? Math.max(-1, Math.min(1, weighted / (magnitude * .68))) : 0;
+      node.score = magnitude ? Math.max(-1, Math.min(1, weighted / magnitude)) : 0;
     }
-    if (Math.abs(node.score - previous) > .055) node.changedAt = now;
   });
+  applyVisualRanks();
+  if (highlightQuestion !== null && answers[highlightQuestion] !== null) highlightImpact(highlightQuestion);
+  requestDraw();
+}
+
+function highlightImpact(questionIndex) {
+  const answerValue = answers[questionIndex];
+  if (answerValue === null) return;
+  const impacts = nodes.map(node => ({ node, amount: Math.abs(questionImpact(node, questions[questionIndex], answerValue)) }));
+  impacts.sort((a, b) => b.amount - a.amount);
+  const threshold = impacts[Math.min(34, impacts.length - 1)].amount;
+  const now = performance.now();
+  impacts.forEach(({ node, amount }) => { if (amount >= threshold && amount > .01) node.changedAt = now; });
   requestDraw();
 }
 
 function nodeColor(node) {
-  const positive = Math.max(0, node.score);
-  const negative = Math.max(0, -node.score);
-  const saturation = 8 + positive * 78;
-  const lightness = 47 + positive * 10 - negative * 17;
+  if (!answers.some(value => value !== null)) return 'hsl(215 7% 47%)';
+  const rank = node.visualRank;
+  const winner = Math.max(0, (rank - .45) / .55);
+  const loser = Math.max(0, (.45 - rank) / .45);
+  const saturation = 4 + Math.pow(winner, .72) * 94;
+  const lightness = 44 + Math.pow(winner, .8) * 17 - Math.pow(loser, .75) * 18;
   return `hsl(${node.cluster.hue} ${saturation}% ${lightness}%)`;
 }
 
 function draw(timestamp) {
   requestAnimationFrame(draw);
-  if (!needsFrame && !nodes.some(n => timestamp - n.changedAt < 900)) return;
+  if (!needsFrame && !nodes.some(n => timestamp - n.changedAt < HIGHLIGHT_MS)) return;
   needsFrame = false;
   const rect = canvas.getBoundingClientRect();
   ctx.fillStyle = '#10151f';
   ctx.fillRect(0, 0, rect.width, rect.height);
-
   ctx.lineWidth = 1;
   edges.forEach(([a,b]) => {
     const pa = worldToScreen(a), pb = worldToScreen(b);
     ctx.strokeStyle = 'rgba(151,164,184,.16)';
     ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
   });
-
   nodes.forEach(node => {
     const p = worldToScreen(node);
     const r = Math.max(node.level === 0 ? 15 : 5, node.radius * view.scale);
     const age = timestamp - node.changedAt;
-    if (age < 900) {
-      const pulse = 1 - age / 900;
-      ctx.strokeStyle = `rgba(255,255,255,${pulse * .85})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(p.x,p.y,r + 7 + (1-pulse)*15,0,Math.PI*2); ctx.stroke();
+    if (age < HIGHLIGHT_MS) {
+      const progress = age / HIGHLIGHT_MS;
+      const alpha = Math.pow(1 - progress, .65);
+      const wave = Math.sin(Math.min(1, progress * 2) * Math.PI);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * .92})`;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(p.x,p.y,r + 7 + wave * 10,0,Math.PI*2); ctx.stroke();
       needsFrame = true;
     }
     ctx.fillStyle = nodeColor(node);
@@ -181,12 +186,10 @@ function draw(timestamp) {
     ctx.strokeStyle = node === hoveredNode ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.24)';
     ctx.lineWidth = node === hoveredNode ? 2 : 1;
     ctx.stroke();
-
     const showLabel = node.level === 0 || view.scale > .68 || node === hoveredNode;
     if (showLabel) {
       ctx.font = `${node.level === 0 ? 700 : 500} ${node.level === 0 ? 13 : 10}px Inter, system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ctx.fillStyle = node.level === 0 ? '#f5f7fb' : 'rgba(235,240,248,.78)';
       ctx.fillText(node.label, p.x, p.y + r + 5);
     }
@@ -200,37 +203,47 @@ function zoomAt(factor, sx = canvas.clientWidth/2, sy = canvas.clientHeight/2) {
   view.y = sy - before.y * view.scale;
   requestDraw();
 }
-
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * .0012), e.offsetX, e.offsetY); }, { passive:false });
 canvas.addEventListener('pointerdown', e => { dragging = true; lastPointer = {x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); });
 canvas.addEventListener('pointermove', e => {
   const rect = canvas.getBoundingClientRect();
-  if (dragging) {
-    view.x += e.clientX-lastPointer.x; view.y += e.clientY-lastPointer.y;
-    lastPointer = {x:e.clientX,y:e.clientY}; requestDraw(); return;
-  }
+  if (dragging) { view.x += e.clientX-lastPointer.x; view.y += e.clientY-lastPointer.y; lastPointer = {x:e.clientX,y:e.clientY}; requestDraw(); return; }
   const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-  hoveredNode = [...nodes].reverse().find(node => {
-    const p=worldToScreen(node); const r=Math.max(node.level===0?15:6,node.radius*view.scale)+6;
-    return (mx-p.x)**2+(my-p.y)**2 <= r*r;
-  }) || null;
+  hoveredNode = [...nodes].reverse().find(node => { const p=worldToScreen(node); const r=Math.max(node.level===0?15:6,node.radius*view.scale)+6; return (mx-p.x)**2+(my-p.y)**2 <= r*r; }) || null;
   if (hoveredNode) {
     const p=worldToScreen(hoveredNode);
     tooltip.hidden=false; tooltip.style.left=`${Math.min(rect.width-245,p.x+15)}px`; tooltip.style.top=`${Math.max(10,p.y-18)}px`;
-    tooltip.innerHTML=`<strong>${hoveredNode.label}</strong><small>${hoveredNode.cluster.label} · match ${Math.round(Math.max(0,hoveredNode.score)*100)}%</small>`;
+    tooltip.innerHTML=`<strong>${hoveredNode.label}</strong><small>${hoveredNode.cluster.label} · relative match ${Math.round(hoveredNode.visualRank*100)}%</small>`;
   } else tooltip.hidden=true;
   requestDraw();
 });
-canvas.addEventListener('pointerup', e => { dragging=false; canvas.releasePointerCapture(e.pointerId); canvas.classList.remove('dragging'); });
+canvas.addEventListener('pointerup', e => { dragging=false; if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); canvas.classList.remove('dragging'); });
 canvas.addEventListener('pointercancel', () => { dragging=false; canvas.classList.remove('dragging'); });
-
 document.getElementById('zoomIn').onclick=()=>zoomAt(1.25);
 document.getElementById('zoomOut').onclick=()=>zoomAt(.8);
 document.getElementById('fitView').onclick=fitView;
 
+function firstUnansweredIndex() {
+  const index = answers.findIndex(value => value === null);
+  return index === -1 ? questions.length - 1 : index;
+}
+function furthestAccessibleIndex() {
+  const first = answers.findIndex(value => value === null);
+  return first === -1 ? questions.length - 1 : first;
+}
+function navigateTo(index, replay = true) {
+  clearTimeout(advanceTimer);
+  const target = Math.max(0, Math.min(furthestAccessibleIndex(), index));
+  currentQuestion = target;
+  renderQuestion();
+  if (replay && answers[target] !== null) highlightImpact(target);
+}
 function renderQuestion() {
   document.getElementById('questionIndex').textContent=`Question ${currentQuestion+1}`;
   document.getElementById('questionText').textContent=questions[currentQuestion].text;
+  slider.value = String(currentQuestion + 1);
+  slider.max = String(questions.length);
+  slider.setAttribute('aria-valuemax', String(furthestAccessibleIndex() + 1));
   const holder=document.getElementById('answerButtons'); holder.replaceChildren();
   choices.forEach(choice => {
     const button=document.createElement('button');
@@ -241,28 +254,28 @@ function renderQuestion() {
   });
   updateProgress();
 }
-
 function answer(value) {
+  clearTimeout(advanceTimer);
   answers[currentQuestion]=value;
-  scoreGraph();
-  updateProgress();
-  setTimeout(()=>{
-    if (currentQuestion < questions.length-1) currentQuestion++;
-    else {
-      const next=answers.findIndex(v=>v===null);
-      if (next>=0) currentQuestion=next;
-    }
-    renderQuestion();
-  },180);
+  scoreGraph({ highlightQuestion: currentQuestion });
+  renderQuestion();
+  advanceTimer = setTimeout(() => {
+    if (currentQuestion < questions.length - 1) navigateTo(currentQuestion + 1, false);
+    else navigateTo(firstUnansweredIndex(), false);
+  }, 420);
 }
-
 function updateProgress() {
   const done=answers.filter(v=>v!==null).length;
   const percent=Math.round(done/questions.length*100);
   document.getElementById('progressLabel').textContent=`${done} of ${questions.length} answered`;
   document.getElementById('progressPercent').textContent=`${percent}%`;
-  document.getElementById('progressFill').style.width=`${percent}%`;
 }
+slider.addEventListener('input', () => {
+  const requested = Number(slider.value) - 1;
+  const allowed = furthestAccessibleIndex();
+  if (requested > allowed) slider.value = String(allowed + 1);
+  navigateTo(Math.min(requested, allowed), true);
+});
 
 window.addEventListener('resize', resize);
 renderQuestion(); resize(); requestAnimationFrame(draw);
