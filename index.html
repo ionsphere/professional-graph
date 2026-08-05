@@ -32,12 +32,12 @@
 
     <section class="assessment-card">
       <div class="progress-row">
-        <strong id="progressLabel">0 of 12 answered</strong>
-        <span id="progressPercent">0%</span>
+        <strong id="progressLabel">0 of 100 answered</strong>
+        <span id="progressPercent">Viewing 1</span>
       </div>
       <div class="question-slider-wrap">
-        <input id="questionSlider" class="question-slider" type="range" min="1" max="12" value="1" step="1" aria-label="Question navigation" />
-        <div class="slider-scale" aria-hidden="true"><span>1</span><span>12</span></div>
+        <input id="questionSlider" class="question-slider" type="range" min="1" max="100" value="1" step="1" aria-label="Question navigation" />
+        <div class="slider-scale" aria-hidden="true"><span>1</span><span>100</span></div>
       </div>
 
       <div class="question-copy">
@@ -46,10 +46,11 @@
       </div>
 
       <div id="answerButtons" class="answers" role="group" aria-label="Answer choices"></div>
-      <p class="interaction-note">Move backward through answered questions to replay their effect. Unanswered questions never preview affected professions.</p>
+      <p class="interaction-note">One finger pans, two fingers pinch to zoom, and double-tap zooms in. Unanswered questions never preview affected professions.</p>
     </section>
   </main>
 
+  <script src="model.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

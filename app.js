@@ -1,281 +1,56 @@
-const canvas = document.getElementById('graphCanvas');
-const ctx = canvas.getContext('2d', { alpha: false });
-const tooltip = document.getElementById('nodeTooltip');
-const slider = document.getElementById('questionSlider');
-const HIGHLIGHT_MS = 2200;
+const canvas=document.getElementById('graphCanvas');
+const ctx=canvas.getContext('2d',{alpha:false});
+const tooltip=document.getElementById('nodeTooltip');
+const slider=document.getElementById('questionSlider');
+const {sectors,questions,dimensions}=ProfessionalModel;
+const HIGHLIGHT_MS=2600;
+const choices=[['Strongly dislike',-1],['Dislike',-.5],['Unsure',0],['Like',.5],['Strongly like',1]];
+const nodes=[],edges=[];
+const mergeTraits=(...parts)=>{const out={};parts.forEach(p=>Object.entries(p||{}).forEach(([k,v])=>out[k]=Math.max(out[k]||0,v)));return out;};
 
-const clusters = [
-  { id: 'technology', label: 'Technology', hue: 210, jobs: ['Software Engineer','Data Scientist','ML Engineer','Cybersecurity Analyst','Product Manager','UX Designer','Cloud Engineer','Game Developer','Robotics Engineer','QA Engineer'] },
-  { id: 'health', label: 'Health', hue: 350, jobs: ['Physician','Registered Nurse','Physical Therapist','Psychologist','Dentist','Pharmacist','Paramedic','Medical Researcher','Dietitian','Radiology Technologist'] },
-  { id: 'science', label: 'Science', hue: 275, jobs: ['Biologist','Chemist','Physicist','Astronomer','Environmental Scientist','Geologist','Statistician','Lab Technician','Epidemiologist','Materials Scientist'] },
-  { id: 'creative', label: 'Creative', hue: 32, jobs: ['Graphic Designer','Writer','Musician','Film Director','Photographer','Architect','Animator','Fashion Designer','Industrial Designer','Actor'] },
-  { id: 'education', label: 'Education', hue: 48, jobs: ['Primary Teacher','Professor','Special Education Teacher','School Counselor','Corporate Trainer','Librarian','Instructional Designer','Tutor','Principal','Museum Educator'] },
-  { id: 'business', label: 'Business', hue: 150, jobs: ['Entrepreneur','Sales Manager','Financial Analyst','Accountant','Marketing Manager','Operations Manager','Consultant','Recruiter','Real Estate Agent','Project Manager'] },
-  { id: 'public', label: 'Public Service', hue: 190, jobs: ['Lawyer','Judge','Police Officer','Firefighter','Social Worker','Urban Planner','Diplomat','Policy Analyst','Military Officer','Emergency Manager'] },
-  { id: 'trades', label: 'Trades', hue: 12, jobs: ['Electrician','Plumber','Carpenter','Welder','HVAC Technician','Machinist','Auto Mechanic','Construction Manager','Solar Installer','Building Inspector'] },
-  { id: 'transport', label: 'Transport', hue: 95, jobs: ['Truck Driver','Taxi Driver','Ride-share Driver','Bus Driver','Train Operator','Pilot','Ship Captain','Delivery Driver','Logistics Planner','Air Traffic Controller'] },
-  { id: 'service', label: 'Service', hue: 320, jobs: ['Chef','Hotel Manager','Barber','Fitness Trainer','Childcare Worker','Event Planner','Tour Guide','Customer Support Specialist','Security Guard','Veterinary Assistant'] }
-];
-
-const traitKeys = ['analysis','building','people','care','creativity','leadership','order','outdoors','risk','movement'];
-const seeded = (text) => {
-  let h = 2166136261;
-  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return () => ((h = Math.imul(h ^ (h >>> 13), 1274126177)) >>> 0) / 4294967295;
-};
-
-const clusterTraits = {
-  technology: { analysis:.9, building:.8, creativity:.5, order:.5 }, health: { care:1, people:.8, analysis:.6, risk:.4 },
-  science: { analysis:1, outdoors:.35, order:.55 }, creative: { creativity:1, people:.35, building:.3 },
-  education: { people:.9, care:.7, creativity:.5, leadership:.45 }, business: { leadership:.9, people:.75, order:.65, analysis:.45 },
-  public: { people:.7, care:.55, leadership:.65, risk:.55, order:.6 }, trades: { building:1, movement:.75, outdoors:.45, order:.5 },
-  transport: { movement:1, risk:.55, order:.65, outdoors:.4 }, service: { people:.85, care:.55, movement:.55, creativity:.35 }
-};
-
-const nodes = [];
-const edges = [];
-clusters.forEach((cluster, ci) => {
-  const angle = -Math.PI / 2 + (ci / clusters.length) * Math.PI * 2;
-  const cx = Math.cos(angle) * 560;
-  const cy = Math.sin(angle) * 390;
-  const root = { id: cluster.id, label: cluster.label, cluster, level: 0, x: cx, y: cy, radius: 34, score: 0, visualRank: 0, changedAt: -Infinity, traits: clusterTraits[cluster.id] };
+sectors.forEach((sector,si)=>{
+  const a=-Math.PI/2+si/sectors.length*Math.PI*2;
+  const root={id:sector.id,label:sector.label,sector,level:0,x:Math.cos(a)*760,y:Math.sin(a)*540,radius:34,traits:sector.traits,score:0,visualRank:0,changedAt:-Infinity};
   nodes.push(root);
-  cluster.jobs.forEach((job, ji) => {
-    const localAngle = angle + (ji - 4.5) * 0.105;
-    const distance = 155 + (ji % 2) * 42;
-    const random = seeded(job);
-    const traits = {};
-    traitKeys.forEach(key => traits[key] = Math.min(1, (clusterTraits[cluster.id][key] || 0) + random() * .24));
-    const node = { id: `${cluster.id}-${ji}`, label: job, cluster, level: 1, x: cx + Math.cos(localAngle) * distance, y: cy + Math.sin(localAngle) * distance, radius: 14, score: 0, visualRank: 0, changedAt: -Infinity, traits };
-    nodes.push(node);
-    edges.push([root, node]);
+  sector.groups.forEach((group,gi)=>{
+    const [label,jobs,extra]=group;
+    const spread=(gi-(sector.groups.length-1)/2)*.16;
+    const ga=a+spread;
+    const branch={id:`${sector.id}-${gi}`,label,sector,level:1,x:root.x+Math.cos(ga)*190,y:root.y+Math.sin(ga)*190,radius:21,traits:mergeTraits(sector.traits,extra),score:0,visualRank:0,changedAt:-Infinity};
+    nodes.push(branch);edges.push([root,branch]);
+    jobs.forEach((job,ji)=>{
+      const ja=ga+(ji-(jobs.length-1)/2)*.105;
+      const d=120+(ji%2)*25;
+      const leaf={id:`${sector.id}-${gi}-${ji}`,label:job,sector,level:2,x:branch.x+Math.cos(ja)*d,y:branch.y+Math.sin(ja)*d,radius:11,traits:mergeTraits(sector.traits,extra),score:0,visualRank:0,changedAt:-Infinity};
+      nodes.push(leaf);edges.push([branch,leaf]);
+    });
   });
 });
 
-const questions = [
-  { text: 'I enjoy finding why a complex system fails and tracing the problem to its source.', weights: { analysis:1, order:.25, building:.3 } },
-  { text: 'I would enjoy making or repairing something tangible with tools.', weights: { building:1, movement:.5, outdoors:.2 } },
-  { text: 'Helping someone through illness, fear, or a difficult personal situation feels meaningful to me.', weights: { care:1, people:.75 } },
-  { text: 'I like inventing visual, musical, written, or spatial ideas that did not exist before.', weights: { creativity:1, building:.2 } },
-  { text: 'I enjoy persuading people, negotiating, and taking responsibility for a group result.', weights: { leadership:1, people:.75, risk:.3 } },
-  { text: 'I prefer work with clear procedures, records, schedules, and measurable completion.', weights: { order:1, analysis:.25 } },
-  { text: 'I would rather move through different places than spend most of the day at one desk.', weights: { movement:1, outdoors:.55 } },
-  { text: 'I am comfortable making consequential decisions quickly when information is incomplete.', weights: { risk:1, leadership:.5, analysis:.4 } },
-  { text: 'Explaining difficult ideas until another person understands them is satisfying.', weights: { people:.8, care:.45, creativity:.35 } },
-  { text: 'I enjoy studying evidence, patterns, or data even when there is no immediate practical result.', weights: { analysis:1, order:.35 } },
-  { text: 'I would enjoy coordinating many people, deadlines, and resources toward one outcome.', weights: { leadership:.85, order:.85, people:.45 } },
-  { text: 'Working outside or around machines, vehicles, buildings, or natural environments appeals to me.', weights: { outdoors:1, movement:.65, building:.55 } }
-];
-const choices = [
-  { label: 'Strongly dislike', value: -1 }, { label: 'Dislike', value: -.5 }, { label: 'Unsure', value: 0 }, { label: 'Like', value: .5 }, { label: 'Strongly like', value: 1 }
-];
-
-let answers = Array(questions.length).fill(null);
-let currentQuestion = 0;
-let view = { x: 0, y: 0, scale: 1 };
-let dragging = false;
-let lastPointer = null;
-let hoveredNode = null;
-let needsFrame = true;
-let advanceTimer = null;
-
-function resize() {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(rect.width * dpr);
-  canvas.height = Math.round(rect.height * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  fitView();
-}
-function fitView() {
-  const rect = canvas.getBoundingClientRect();
-  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-  const minX = Math.min(...xs) - 70, maxX = Math.max(...xs) + 70;
-  const minY = Math.min(...ys) - 70, maxY = Math.max(...ys) + 70;
-  view.scale = Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY));
-  view.x = rect.width / 2 - ((minX + maxX) / 2) * view.scale;
-  view.y = rect.height / 2 - ((minY + maxY) / 2) * view.scale;
-  requestDraw();
-}
-function worldToScreen(node) { return { x: node.x * view.scale + view.x, y: node.y * view.scale + view.y }; }
-function screenToWorld(x, y) { return { x: (x - view.x) / view.scale, y: (y - view.y) / view.scale }; }
-function requestDraw() { needsFrame = true; }
-
-function questionImpact(node, question, answerValue) {
-  let impact = 0;
-  Object.entries(question.weights).forEach(([trait, weight]) => { impact += answerValue * weight * (node.traits[trait] || 0); });
-  return impact;
-}
-
-function applyVisualRanks() {
-  const sorted = [...nodes].sort((a, b) => a.score - b.score);
-  const divisor = Math.max(1, sorted.length - 1);
-  sorted.forEach((node, index) => { node.visualRank = index / divisor; });
-}
-
-function scoreGraph({ highlightQuestion = null } = {}) {
-  const answered = answers.map((value, i) => value === null ? null : { value, question: questions[i] }).filter(Boolean);
-  nodes.forEach(node => {
-    if (!answered.length) node.score = 0;
-    else {
-      let weighted = 0;
-      let magnitude = 0;
-      answered.forEach(({ value, question }) => {
-        Object.entries(question.weights).forEach(([trait, weight]) => {
-          weighted += value * weight * (node.traits[trait] || 0);
-          magnitude += Math.abs(weight) * Math.max(.2, node.traits[trait] || 0);
-        });
-      });
-      node.score = magnitude ? Math.max(-1, Math.min(1, weighted / magnitude)) : 0;
-    }
-  });
-  applyVisualRanks();
-  if (highlightQuestion !== null && answers[highlightQuestion] !== null) highlightImpact(highlightQuestion);
-  requestDraw();
-}
-
-function highlightImpact(questionIndex) {
-  const answerValue = answers[questionIndex];
-  if (answerValue === null) return;
-  const impacts = nodes.map(node => ({ node, amount: Math.abs(questionImpact(node, questions[questionIndex], answerValue)) }));
-  impacts.sort((a, b) => b.amount - a.amount);
-  const threshold = impacts[Math.min(34, impacts.length - 1)].amount;
-  const now = performance.now();
-  impacts.forEach(({ node, amount }) => { if (amount >= threshold && amount > .01) node.changedAt = now; });
-  requestDraw();
-}
-
-function nodeColor(node) {
-  if (!answers.some(value => value !== null)) return 'hsl(215 7% 47%)';
-  const rank = node.visualRank;
-  const winner = Math.max(0, (rank - .45) / .55);
-  const loser = Math.max(0, (.45 - rank) / .45);
-  const saturation = 4 + Math.pow(winner, .72) * 94;
-  const lightness = 44 + Math.pow(winner, .8) * 17 - Math.pow(loser, .75) * 18;
-  return `hsl(${node.cluster.hue} ${saturation}% ${lightness}%)`;
-}
-
-function draw(timestamp) {
-  requestAnimationFrame(draw);
-  if (!needsFrame && !nodes.some(n => timestamp - n.changedAt < HIGHLIGHT_MS)) return;
-  needsFrame = false;
-  const rect = canvas.getBoundingClientRect();
-  ctx.fillStyle = '#10151f';
-  ctx.fillRect(0, 0, rect.width, rect.height);
-  ctx.lineWidth = 1;
-  edges.forEach(([a,b]) => {
-    const pa = worldToScreen(a), pb = worldToScreen(b);
-    ctx.strokeStyle = 'rgba(151,164,184,.16)';
-    ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
-  });
-  nodes.forEach(node => {
-    const p = worldToScreen(node);
-    const r = Math.max(node.level === 0 ? 15 : 5, node.radius * view.scale);
-    const age = timestamp - node.changedAt;
-    if (age < HIGHLIGHT_MS) {
-      const progress = age / HIGHLIGHT_MS;
-      const alpha = Math.pow(1 - progress, .65);
-      const wave = Math.sin(Math.min(1, progress * 2) * Math.PI);
-      ctx.strokeStyle = `rgba(255,255,255,${alpha * .92})`;
-      ctx.lineWidth = 2.2;
-      ctx.beginPath(); ctx.arc(p.x,p.y,r + 7 + wave * 10,0,Math.PI*2); ctx.stroke();
-      needsFrame = true;
-    }
-    ctx.fillStyle = nodeColor(node);
-    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle = node === hoveredNode ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.24)';
-    ctx.lineWidth = node === hoveredNode ? 2 : 1;
-    ctx.stroke();
-    const showLabel = node.level === 0 || view.scale > .68 || node === hoveredNode;
-    if (showLabel) {
-      ctx.font = `${node.level === 0 ? 700 : 500} ${node.level === 0 ? 13 : 10}px Inter, system-ui`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = node.level === 0 ? '#f5f7fb' : 'rgba(235,240,248,.78)';
-      ctx.fillText(node.label, p.x, p.y + r + 5);
-    }
-  });
-}
-
-function zoomAt(factor, sx = canvas.clientWidth/2, sy = canvas.clientHeight/2) {
-  const before = screenToWorld(sx, sy);
-  view.scale = Math.max(.22, Math.min(3.2, view.scale * factor));
-  view.x = sx - before.x * view.scale;
-  view.y = sy - before.y * view.scale;
-  requestDraw();
-}
-canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * .0012), e.offsetX, e.offsetY); }, { passive:false });
-canvas.addEventListener('pointerdown', e => { dragging = true; lastPointer = {x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); });
-canvas.addEventListener('pointermove', e => {
-  const rect = canvas.getBoundingClientRect();
-  if (dragging) { view.x += e.clientX-lastPointer.x; view.y += e.clientY-lastPointer.y; lastPointer = {x:e.clientX,y:e.clientY}; requestDraw(); return; }
-  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-  hoveredNode = [...nodes].reverse().find(node => { const p=worldToScreen(node); const r=Math.max(node.level===0?15:6,node.radius*view.scale)+6; return (mx-p.x)**2+(my-p.y)**2 <= r*r; }) || null;
-  if (hoveredNode) {
-    const p=worldToScreen(hoveredNode);
-    tooltip.hidden=false; tooltip.style.left=`${Math.min(rect.width-245,p.x+15)}px`; tooltip.style.top=`${Math.max(10,p.y-18)}px`;
-    tooltip.innerHTML=`<strong>${hoveredNode.label}</strong><small>${hoveredNode.cluster.label} · relative match ${Math.round(hoveredNode.visualRank*100)}%</small>`;
-  } else tooltip.hidden=true;
-  requestDraw();
-});
-canvas.addEventListener('pointerup', e => { dragging=false; if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); canvas.classList.remove('dragging'); });
-canvas.addEventListener('pointercancel', () => { dragging=false; canvas.classList.remove('dragging'); });
-document.getElementById('zoomIn').onclick=()=>zoomAt(1.25);
-document.getElementById('zoomOut').onclick=()=>zoomAt(.8);
-document.getElementById('fitView').onclick=fitView;
-
-function firstUnansweredIndex() {
-  const index = answers.findIndex(value => value === null);
-  return index === -1 ? questions.length - 1 : index;
-}
-function furthestAccessibleIndex() {
-  const first = answers.findIndex(value => value === null);
-  return first === -1 ? questions.length - 1 : first;
-}
-function navigateTo(index, replay = true) {
-  clearTimeout(advanceTimer);
-  const target = Math.max(0, Math.min(furthestAccessibleIndex(), index));
-  currentQuestion = target;
-  renderQuestion();
-  if (replay && answers[target] !== null) highlightImpact(target);
-}
-function renderQuestion() {
-  document.getElementById('questionIndex').textContent=`Question ${currentQuestion+1}`;
-  document.getElementById('questionText').textContent=questions[currentQuestion].text;
-  slider.value = String(currentQuestion + 1);
-  slider.max = String(questions.length);
-  slider.setAttribute('aria-valuemax', String(furthestAccessibleIndex() + 1));
-  const holder=document.getElementById('answerButtons'); holder.replaceChildren();
-  choices.forEach(choice => {
-    const button=document.createElement('button');
-    button.className='answer-button'+(answers[currentQuestion]===choice.value?' selected':'');
-    button.textContent=choice.label;
-    button.onclick=()=>answer(choice.value);
-    holder.appendChild(button);
-  });
-  updateProgress();
-}
-function answer(value) {
-  clearTimeout(advanceTimer);
-  answers[currentQuestion]=value;
-  scoreGraph({ highlightQuestion: currentQuestion });
-  renderQuestion();
-  advanceTimer = setTimeout(() => {
-    if (currentQuestion < questions.length - 1) navigateTo(currentQuestion + 1, false);
-    else navigateTo(firstUnansweredIndex(), false);
-  }, 420);
-}
-function updateProgress() {
-  const done=answers.filter(v=>v!==null).length;
-  const percent=Math.round(done/questions.length*100);
-  document.getElementById('progressLabel').textContent=`${done} of ${questions.length} answered`;
-  document.getElementById('progressPercent').textContent=`${percent}%`;
-}
-slider.addEventListener('input', () => {
-  const requested = Number(slider.value) - 1;
-  const allowed = furthestAccessibleIndex();
-  if (requested > allowed) slider.value = String(allowed + 1);
-  navigateTo(Math.min(requested, allowed), true);
-});
-
-window.addEventListener('resize', resize);
-renderQuestion(); resize(); requestAnimationFrame(draw);
+let answers=Array(questions.length).fill(null),currentQuestion=0,view={x:0,y:0,scale:1},needsFrame=true,hoveredNode=null,advanceTimer=null;
+const pointers=new Map();
+let gesture=null,lastTap=0;
+function requestDraw(){needsFrame=true;}
+function worldToScreen(n){return{x:n.x*view.scale+view.x,y:n.y*view.scale+view.y};}
+function screenToWorld(x,y){return{x:(x-view.x)/view.scale,y:(y-view.y)/view.scale};}
+function fitView(){const r=canvas.getBoundingClientRect(),xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y);const minX=Math.min(...xs)-80,maxX=Math.max(...xs)+80,minY=Math.min(...ys)-80,maxY=Math.max(...ys)+80;view.scale=Math.min(r.width/(maxX-minX),r.height/(maxY-minY));view.x=r.width/2-(minX+maxX)/2*view.scale;view.y=r.height/2-(minY+maxY)/2*view.scale;requestDraw();}
+function resize(){const r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(r.width*d);canvas.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);fitView();}
+function zoomAt(factor,sx=canvas.clientWidth/2,sy=canvas.clientHeight/2){const before=screenToWorld(sx,sy);view.scale=Math.max(.12,Math.min(5,view.scale*factor));view.x=sx-before.x*view.scale;view.y=sy-before.y*view.scale;requestDraw();}
+function answerLimit(){const first=answers.findIndex(v=>v===null);return first<0?questions.length-1:first;}
+function questionImpact(n,q,value){return Object.entries(q.weights).reduce((s,[k,w])=>s+value*w*(n.traits[k]||0),0);}
+function scoreGraph({highlight=null}={}){const used=answers.map((value,i)=>value===null?null:{value,q:questions[i]}).filter(Boolean);nodes.forEach(n=>{let total=0,mag=0;used.forEach(({value,q})=>Object.entries(q.weights).forEach(([k,w])=>{const t=n.traits[k]||0;total+=value*w*t;mag+=Math.abs(w)*Math.max(.15,t);}));n.score=mag?Math.max(-1,Math.min(1,total/mag)):0;});const sorted=[...nodes].sort((a,b)=>a.score-b.score),d=Math.max(1,sorted.length-1);sorted.forEach((n,i)=>n.visualRank=i/d);if(highlight!==null&&answers[highlight]!==null)highlightImpact(highlight);requestDraw();}
+function highlightImpact(i){const value=answers[i];if(value===null)return;const ranked=nodes.map(n=>({n,a:Math.abs(questionImpact(n,questions[i],value))})).sort((a,b)=>b.a-a.a);const threshold=ranked[Math.min(55,ranked.length-1)].a,now=performance.now();ranked.forEach(x=>{if(x.a>=threshold&&x.a>.01)x.n.changedAt=now;});requestDraw();}
+function nodeColor(n){if(!answers.some(v=>v!==null))return'hsl(215 6% 47%)';const winner=Math.max(0,(n.visualRank-.42)/.58),loser=Math.max(0,(.42-n.visualRank)/.42);return`hsl(${n.sector.hue} ${5+Math.pow(winner,.62)*94}% ${43+Math.pow(winner,.8)*18-Math.pow(loser,.75)*19}%)`;}
+function draw(t){requestAnimationFrame(draw);if(!needsFrame&&!nodes.some(n=>t-n.changedAt<HIGHLIGHT_MS))return;needsFrame=false;const r=canvas.getBoundingClientRect();ctx.fillStyle='#10151f';ctx.fillRect(0,0,r.width,r.height);edges.forEach(([a,b])=>{const p=worldToScreen(a),q=worldToScreen(b);ctx.strokeStyle='rgba(151,164,184,.13)';ctx.lineWidth=a.level===0?1.4:1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();});nodes.forEach(n=>{const p=worldToScreen(n),min=n.level===0?13:n.level===1?8:4,rr=Math.max(min,n.radius*view.scale),age=t-n.changedAt;if(age<HIGHLIGHT_MS){const u=age/HIGHLIGHT_MS,alpha=Math.pow(1-u,.6);ctx.strokeStyle=`rgba(255,255,255,${alpha*.95})`;ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,rr+7+Math.sin(Math.min(1,u*1.5)*Math.PI)*12,0,Math.PI*2);ctx.stroke();needsFrame=true;}ctx.fillStyle=nodeColor(n);ctx.beginPath();ctx.arc(p.x,p.y,rr,0,Math.PI*2);ctx.fill();ctx.strokeStyle=n===hoveredNode?'white':'rgba(255,255,255,.22)';ctx.lineWidth=n===hoveredNode?2:1;ctx.stroke();const show=n.level===0||(n.level===1&&view.scale>.3)||(n.level===2&&view.scale>.72)||n===hoveredNode;if(show){ctx.font=`${n.level===0?700:500} ${n.level===0?12:n.level===1?10:9}px system-ui`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=n.level===0?'#f7f8fb':'rgba(238,242,248,.76)';ctx.fillText(n.label,p.x,p.y+rr+4);}});}
+function pointerXY(e){const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
+function resetGesture(){const ps=[...pointers.values()];if(ps.length===1)gesture={type:'pan',last:ps[0]};else if(ps.length===2){const [a,b]=ps,mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},dist=Math.hypot(a.x-b.x,a.y-b.y);gesture={type:'pinch',mid,dist,world:screenToWorld(mid.x,mid.y),startScale:view.scale};}else gesture=null;}
+canvas.addEventListener('pointerdown',e=>{const p=pointerXY(e);pointers.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);resetGesture();canvas.classList.add('dragging');const now=performance.now();if(pointers.size===1&&now-lastTap<300){zoomAt(1.65,p.x,p.y);lastTap=0;}else lastTap=now;});
+canvas.addEventListener('pointermove',e=>{if(pointers.has(e.pointerId)){pointers.set(e.pointerId,pointerXY(e));if(pointers.size===1&&gesture?.type==='pan'){const p=[...pointers.values()][0];view.x+=p.x-gesture.last.x;view.y+=p.y-gesture.last.y;gesture.last=p;requestDraw();return;}if(pointers.size===2&&gesture?.type==='pinch'){const [a,b]=[...pointers.values()],mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},dist=Math.hypot(a.x-b.x,a.y-b.y);view.scale=Math.max(.12,Math.min(5,gesture.startScale*dist/Math.max(1,gesture.dist)));view.x=mid.x-gesture.world.x*view.scale;view.y=mid.y-gesture.world.y*view.scale;requestDraw();return;}}if(e.pointerType==='mouse'&&!pointers.size){const p=pointerXY(e);hoveredNode=[...nodes].reverse().find(n=>{const s=worldToScreen(n),rr=Math.max(n.level===0?13:n.level===1?8:5,n.radius*view.scale)+5;return(p.x-s.x)**2+(p.y-s.y)**2<rr*rr;})||null;if(hoveredNode){const s=worldToScreen(hoveredNode),r=canvas.getBoundingClientRect();tooltip.hidden=false;tooltip.style.left=`${Math.min(r.width-245,s.x+12)}px`;tooltip.style.top=`${Math.max(8,s.y-18)}px`;tooltip.innerHTML=`<strong>${hoveredNode.label}</strong><small>${hoveredNode.sector.label} · relative match ${Math.round(hoveredNode.visualRank*100)}%</small>`;}else tooltip.hidden=true;requestDraw();}});
+function endPointer(e){pointers.delete(e.pointerId);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);resetGesture();if(!pointers.size)canvas.classList.remove('dragging');}
+canvas.addEventListener('pointerup',endPointer);canvas.addEventListener('pointercancel',endPointer);canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(Math.exp(-e.deltaY*.0012),e.offsetX,e.offsetY);},{passive:false});
+document.getElementById('zoomIn').onclick=()=>zoomAt(1.25);document.getElementById('zoomOut').onclick=()=>zoomAt(.8);document.getElementById('fitView').onclick=fitView;
+function renderQuestion({replay=false}={}){const q=questions[currentQuestion];document.getElementById('questionIndex').textContent=`Question ${currentQuestion+1} · ${dimensions[q.dimension]}`;document.getElementById('questionText').textContent=q.text;const holder=document.getElementById('answerButtons');holder.replaceChildren();choices.forEach(([label,value])=>{const b=document.createElement('button');b.className='answer-button'+(answers[currentQuestion]===value?' selected':'');b.textContent=label;b.onclick=()=>answer(value);holder.appendChild(b);});updateProgress();if(replay&&answers[currentQuestion]!==null)highlightImpact(currentQuestion);}
+function answer(value){clearTimeout(advanceTimer);answers[currentQuestion]=value;scoreGraph({highlight:currentQuestion});renderQuestion();advanceTimer=setTimeout(()=>{if(currentQuestion<questions.length-1){currentQuestion=Math.min(currentQuestion+1,answerLimit());renderQuestion();}},190);}
+function updateProgress(){const done=answers.filter(v=>v!==null).length,limit=answerLimit();document.getElementById('progressLabel').textContent=`${done} of ${questions.length} answered`;document.getElementById('progressPercent').textContent=`Viewing ${currentQuestion+1}`;slider.max=questions.length;slider.value=currentQuestion+1;slider.style.setProperty('--progress',`${currentQuestion/(questions.length-1)*100}%`);slider.setAttribute('aria-valuemax',String(limit+1));}
+slider.addEventListener('input',()=>{clearTimeout(advanceTimer);const requested=Number(slider.value)-1,current=Math.min(requested,answerLimit());currentQuestion=current;slider.value=current+1;renderQuestion({replay:true});});
+window.addEventListener('resize',resize);renderQuestion();resize();requestAnimationFrame(draw);
