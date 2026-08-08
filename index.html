@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Professional Graph Prototype</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="sessions.css" />
 </head>
 <body>
   <main class="app-shell">
@@ -13,10 +14,17 @@
         <p class="eyebrow">Professional Graph</p>
         <h1>Your world of work</h1>
       </div>
-      <div class="legend" aria-label="Graph legend">
-        <span><i class="legend-dot muted"></i> weaker match</span>
-        <span><i class="legend-dot active"></i> stronger match</span>
-        <span><i class="legend-ring"></i> affected by this answer</span>
+      <div class="top-actions">
+        <div class="legend" aria-label="Graph legend">
+          <span><i class="legend-dot muted"></i> weaker match</span>
+          <span><i class="legend-dot active"></i> stronger match</span>
+          <span><i class="legend-ring"></i> affected by this answer</span>
+        </div>
+        <div class="session-actions">
+          <button id="historyButton" class="quiet-button" type="button">Sessions</button>
+          <button id="shareButton" class="quiet-button" type="button">Share</button>
+          <button id="newSessionButton" class="primary-button" type="button" hidden>New session</button>
+        </div>
       </div>
     </header>
 
@@ -46,11 +54,26 @@
       </div>
 
       <div id="answerButtons" class="answers" role="group" aria-label="Answer choices"></div>
-      <p class="interaction-note">One finger pans, two fingers pinch to zoom, and double-tap zooms in. Unanswered questions never preview affected professions.</p>
+      <p class="interaction-note">Progress is saved after every answer. One finger pans, two fingers pinch to zoom, and double-tap zooms in.</p>
     </section>
   </main>
 
+  <dialog id="sessionsDialog" class="sessions-dialog">
+    <div class="dialog-header">
+      <div>
+        <p class="eyebrow">Saved locally</p>
+        <h2>Answer sessions</h2>
+      </div>
+      <button id="closeSessionsButton" class="icon-button" type="button" aria-label="Close">×</button>
+    </div>
+    <div id="sessionsList" class="sessions-list"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
   <script src="model.js"></script>
+  <script src="question-ids.js"></script>
+  <script src="session-store.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -2,7 +2,14 @@ const canvas=document.getElementById('graphCanvas');
 const ctx=canvas.getContext('2d',{alpha:false});
 const tooltip=document.getElementById('nodeTooltip');
 const slider=document.getElementById('questionSlider');
+const sessionsDialog=document.getElementById('sessionsDialog');
+const sessionsList=document.getElementById('sessionsList');
+const newSessionButton=document.getElementById('newSessionButton');
+const shareButton=document.getElementById('shareButton');
+const historyButton=document.getElementById('historyButton');
+const toast=document.getElementById('toast');
 const {sectors,questions,dimensions}=ProfessionalModel;
+const Store=ProfessionalSessionStore;
 const HIGHLIGHT_MS=2600;
 const choices=[['Strongly dislike',-1],['Dislike',-.5],['Unsure',0],['Like',.5],['Strongly like',1]];
 const nodes=[],edges=[];
@@ -27,9 +34,75 @@ sectors.forEach((sector,si)=>{
   });
 });
 
-let answers=Array(questions.length).fill(null),currentQuestion=0,view={x:0,y:0,scale:1},needsFrame=true,hoveredNode=null,advanceTimer=null;
+let activeSession=Store.importFromUrl()||Store.getActive();
+let answers=[],currentQuestion=0,view={x:0,y:0,scale:1},needsFrame=true,hoveredNode=null,advanceTimer=null;
 const pointers=new Map();
-let gesture=null,lastTap=0;
+let gesture=null,lastTap=0,toastTimer=null;
+
+function sessionToAnswers(session){return questions.map(q=>Object.prototype.hasOwnProperty.call(session.answers||{},q.id)?session.answers[q.id]:null);}
+function syncFromSession(session,{preferFirstUnanswered=false}={}){
+  activeSession=session;
+  Store.setActive(session.id);
+  answers=sessionToAnswers(session);
+  let target=questions.findIndex(q=>q.id===session.currentQuestionId);
+  if(target<0||preferFirstUnanswered){const first=answers.findIndex(v=>v===null);target=first<0?questions.length-1:first;}
+  currentQuestion=Math.max(0,target);
+  scoreGraph();
+  renderQuestion();
+  renderSessionControls();
+}
+function saveActive(){
+  activeSession.answers=Object.fromEntries(questions.map((q,i)=>[q.id,answers[i]]).filter(([,v])=>v!==null));
+  activeSession.currentQuestionId=questions[currentQuestion]?.id||null;
+  const complete=answers.every(v=>v!==null);
+  activeSession=complete?Store.complete(activeSession):Store.saveSession(activeSession);
+  renderSessionControls();
+}
+function newSession(){
+  clearTimeout(advanceTimer);
+  syncFromSession(Store.createSession(),{preferFirstUnanswered:true});
+  sessionsDialog.close();
+  showToast('New session started');
+}
+function showToast(message){
+  clearTimeout(toastTimer);toast.textContent=message;toast.hidden=false;
+  toastTimer=setTimeout(()=>toast.hidden=true,2200);
+}
+function formatStamp(value){
+  if(!value)return'';
+  try{return new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));}catch{return value;}
+}
+function renderSessionControls(){
+  newSessionButton.hidden=!answers.every(v=>v!==null);
+  historyButton.textContent=`Sessions (${Store.listSessions().length})`;
+}
+function renderSessionsList(){
+  const sessions=Store.listSessions();sessionsList.replaceChildren();
+  sessions.forEach(session=>{
+    const row=document.createElement('div');row.className='session-row'+(session.id===activeSession.id?' current':'');
+    const main=document.createElement('button');main.type='button';main.className='session-main';
+    const title=document.createElement('strong');title.textContent=session.name;
+    const stamp=document.createElement('span');stamp.textContent=`${session.completedAt?'Completed':'Updated'} ${formatStamp(session.completedAt||session.updatedAt)}`;
+    main.append(title,stamp);
+    main.onclick=()=>{syncFromSession(Store.getSession(session.id));sessionsDialog.close();showToast(`Opened ${session.name}`);};
+    const edit=document.createElement('button');edit.type='button';edit.className='icon-button';edit.textContent='✎';edit.setAttribute('aria-label',`Rename ${session.name}`);
+    edit.onclick=e=>{e.stopPropagation();const name=prompt('Session name',session.name);if(name!==null){const renamed=Store.rename(session.id,name);if(renamed?.id===activeSession.id)activeSession=renamed;renderSessionsList();renderSessionControls();}};
+    const share=document.createElement('button');share.type='button';share.className='icon-button';share.textContent='↗';share.setAttribute('aria-label',`Share ${session.name}`);
+    share.onclick=async e=>{e.stopPropagation();await shareSession(session);};
+    const del=document.createElement('button');del.type='button';del.className='icon-button danger';del.textContent='⌫';del.setAttribute('aria-label',`Delete ${session.name}`);
+    del.onclick=e=>{e.stopPropagation();if(!confirm(`Delete “${session.name}”?`))return;const wasActive=session.id===activeSession.id;Store.remove(session.id);if(wasActive){const remaining=Store.listSessions();syncFromSession(remaining[0]||Store.createSession(),{preferFirstUnanswered:true});}renderSessionsList();renderSessionControls();};
+    const actions=document.createElement('div');actions.className='session-row-actions';actions.append(edit,share,del);
+    row.append(main,actions);sessionsList.append(row);
+  });
+}
+async function shareSession(session=activeSession){
+  const url=Store.shareUrl(session);
+  try{
+    if(navigator.share){await navigator.share({title:`Professional Graph — ${session.name}`,url});showToast('Share sheet opened');return;}
+    await navigator.clipboard.writeText(url);showToast('Session link copied');
+  }catch(error){if(error?.name!=='AbortError'){prompt('Copy this session link',url);}}
+}
+
 function requestDraw(){needsFrame=true;}
 function worldToScreen(n){return{x:n.x*view.scale+view.x,y:n.y*view.scale+view.y};}
 function screenToWorld(x,y){return{x:(x-view.x)/view.scale,y:(y-view.y)/view.scale};}
@@ -49,8 +122,21 @@ canvas.addEventListener('pointermove',e=>{if(pointers.has(e.pointerId)){pointers
 function endPointer(e){pointers.delete(e.pointerId);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);resetGesture();if(!pointers.size)canvas.classList.remove('dragging');}
 canvas.addEventListener('pointerup',endPointer);canvas.addEventListener('pointercancel',endPointer);canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(Math.exp(-e.deltaY*.0012),e.offsetX,e.offsetY);},{passive:false});
 document.getElementById('zoomIn').onclick=()=>zoomAt(1.25);document.getElementById('zoomOut').onclick=()=>zoomAt(.8);document.getElementById('fitView').onclick=fitView;
+
 function renderQuestion({replay=false}={}){const q=questions[currentQuestion];document.getElementById('questionIndex').textContent=`Question ${currentQuestion+1} · ${dimensions[q.dimension]}`;document.getElementById('questionText').textContent=q.text;const holder=document.getElementById('answerButtons');holder.replaceChildren();choices.forEach(([label,value])=>{const b=document.createElement('button');b.className='answer-button'+(answers[currentQuestion]===value?' selected':'');b.textContent=label;b.onclick=()=>answer(value);holder.appendChild(b);});updateProgress();if(replay&&answers[currentQuestion]!==null)highlightImpact(currentQuestion);}
-function answer(value){clearTimeout(advanceTimer);answers[currentQuestion]=value;scoreGraph({highlight:currentQuestion});renderQuestion();advanceTimer=setTimeout(()=>{if(currentQuestion<questions.length-1){currentQuestion=Math.min(currentQuestion+1,answerLimit());renderQuestion();}},190);}
-function updateProgress(){const done=answers.filter(v=>v!==null).length,limit=answerLimit();document.getElementById('progressLabel').textContent=`${done} of ${questions.length} answered`;document.getElementById('progressPercent').textContent=`Viewing ${currentQuestion+1}`;slider.max=questions.length;slider.value=currentQuestion+1;slider.style.setProperty('--progress',`${currentQuestion/(questions.length-1)*100}%`);slider.setAttribute('aria-valuemax',String(limit+1));}
-slider.addEventListener('input',()=>{clearTimeout(advanceTimer);const requested=Number(slider.value)-1,current=Math.min(requested,answerLimit());currentQuestion=current;slider.value=current+1;renderQuestion({replay:true});});
-window.addEventListener('resize',resize);renderQuestion();resize();requestAnimationFrame(draw);
+function answer(value){clearTimeout(advanceTimer);answers[currentQuestion]=value;scoreGraph({highlight:currentQuestion});saveActive();renderQuestion();advanceTimer=setTimeout(()=>{if(currentQuestion<questions.length-1){currentQuestion=Math.min(currentQuestion+1,answerLimit());saveActive();renderQuestion();}},190);}
+function updateProgress(){const done=answers.filter(v=>v!==null).length,limit=answerLimit();document.getElementById('progressLabel').textContent=`${done} of ${questions.length} answered · ${activeSession.name}`;document.getElementById('progressPercent').textContent=`Viewing ${currentQuestion+1}`;slider.max=questions.length;slider.value=currentQuestion+1;slider.style.setProperty('--progress',`${currentQuestion/(questions.length-1)*100}%`);slider.setAttribute('aria-valuemax',String(limit+1));}
+slider.addEventListener('input',()=>{clearTimeout(advanceTimer);const requested=Number(slider.value)-1,current=Math.min(requested,answerLimit());currentQuestion=current;slider.value=current+1;saveActive();renderQuestion({replay:true});});
+
+historyButton.onclick=()=>{renderSessionsList();sessionsDialog.showModal();};
+document.getElementById('closeSessionsButton').onclick=()=>sessionsDialog.close();
+newSessionButton.onclick=newSession;
+shareButton.onclick=()=>shareSession(activeSession);
+sessionsDialog.addEventListener('click',e=>{if(e.target===sessionsDialog)sessionsDialog.close();});
+window.addEventListener('resize',resize);
+window.addEventListener('pagehide',saveActive);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveActive();});
+
+syncFromSession(activeSession);
+resize();
+requestAnimationFrame(draw);
