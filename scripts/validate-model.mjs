@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const code = fs.readFileSync(new URL('../model.js', import.meta.url), 'utf8');
+const modelCode = fs.readFileSync(new URL('../model.js', import.meta.url), 'utf8');
+const idCode = fs.readFileSync(new URL('../question-ids.js', import.meta.url), 'utf8');
 const sandbox = { window: {} };
-vm.runInNewContext(code, sandbox);
+vm.runInNewContext(modelCode, sandbox);
+sandbox.ProfessionalModel = sandbox.window.ProfessionalModel;
+vm.runInNewContext(idCode, sandbox);
 const model = sandbox.window.ProfessionalModel;
 const errors = [];
 const warnings = [];
@@ -12,6 +15,7 @@ if (model.questions.length !== 100) errors.push(`Expected 100 questions; found $
 
 const questionIds = new Set();
 for (const question of model.questions) {
+  if (!question.id?.startsWith('pgq.')) errors.push(`Question lacks stable global id: ${question.text}`);
   if (questionIds.has(question.id)) errors.push(`Duplicate question id: ${question.id}`);
   questionIds.add(question.id);
   if (!question.text || question.text.length < 25) warnings.push(`Question ${question.id} is unusually short`);
@@ -49,6 +53,7 @@ console.log(`Sectors: ${model.sectors.length}`);
 console.log(`Profession leaves: ${professions.length}`);
 console.log(`Questions: ${model.questions.length}`);
 console.log(`Dimensions: ${Object.keys(model.dimensions).length}`);
+console.log(`Stable question IDs: ${questionIds.size}`);
 warnings.forEach(warning => console.warn('WARN', warning));
 errors.forEach(error => console.error('ERROR', error));
 if (errors.length) process.exit(1);
